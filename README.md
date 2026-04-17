@@ -20,4 +20,5 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 python scrape.py
+## or scrape.py [limit]
 ```

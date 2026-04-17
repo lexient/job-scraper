@@ -10,7 +10,18 @@ import time
 session = requests.Session()
 
 
-limit = 5
+# get limit from command line
+if len(sys.argv) > 1:
+    limit = int(sys.argv[1])
+else:
+    limit = 5
+    
+
+# make folder for jobs if it doesnt exist
+if not os.path.exists("jobs"):
+    os.makedirs("jobs")
+
+
 page = 1
 jobs_saved = 0
 

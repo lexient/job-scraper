@@ -22,3 +22,9 @@ pip install -r requirements.txt
 python scrape.py
 ## or scrape.py [limit]
 ```
+
+## Pagination
+
+The search API caps at 27 pages of 20 jobs = 540 results per query, even if `totalCount` is higher (e.g. 7616 for classification=6281). Anything past page 27 is silently truncated, so a single broad call misses most jobs.
+
+To get full coverage the script splits the query by subclassification and scrapes each one. If a subclassification still has more than 540 jobs, the script raises — it needs to be split further (e.g. by region or worktype).

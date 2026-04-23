@@ -27,4 +27,12 @@ python scrape.py
 
 The search API caps at 27 pages of 20 jobs = 540 results per query, even if `totalCount` is higher (e.g. 7616 for classification=6281). Anything past page 27 is silently truncated, so a single broad call misses most jobs.
 
-To get full coverage the script splits the query by subclassification and scrapes each one. If a subclassification still has more than 540 jobs, the script raises — it needs to be split further (e.g. by region or worktype).
+To get full coverage the script splits the query by subclassification. Any subclassification still over 540 gets split again by region, and so on through the `fallbacks` list in `scrape.py`. If a query still exceeds 540 after every fallback is applied, the script raises.
+
+## Taxonomy
+
+`seek_taxonomy.py` scrapes the full classification/subclassification tree from seek's `/jobs` filter sidebar. Run it to reseed `subclassifications` in `scrape.py` when targeting a different classification. Output is written to `seek_taxonomy.json`.
+
+```bash
+python seek_taxonomy.py
+```

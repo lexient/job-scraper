@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from curl_cffi import requests
+from urllib.parse import quote
 import os
 import sys
 import time
@@ -22,6 +23,25 @@ subclassifications = [
 ]
 
 
+regions = [
+    "All Perth WA",
+    "All Sydney NSW",
+    "All Melbourne VIC",
+    "All Brisbane QLD",
+    "All Gold Coast QLD",
+    "All Adelaide SA",
+    "All Canberra ACT",
+    "All Hobart TAS",
+    "All Darwin NT",
+]
+
+
+# fallbacks to split an over-cap query by, tried in order. add more as needed
+fallbacks = [
+    ("where", regions),
+]
+
+
 # get limit from command line
 if len(sys.argv) > 1:
     limit = int(sys.argv[1])
@@ -34,25 +54,53 @@ if not os.path.exists("jobs"):
     os.makedirs("jobs")
 
 
+search_base = "https://www.seek.com.au/api/jobsearch/v5/search?"
+
+
+def count(query):
+    response = session.get(search_base + query + "&page=1", impersonate="chrome100")
+    return response.json()["totalCount"]
+
+
+# count each sub, then progressively split over-cap queries by each fallback
+queries = []
+for s in subclassifications:
+    q = "subclassification=" + s
+    total = count(q)
+    print("subclassification", s, "-", total, "jobs")
+    queries.append((q, total))
+
+for param, values in fallbacks:
+    refined = []
+    for q, total in queries:
+        if total <= max_results_per_query:
+            refined.append((q, total))
+        else:
+            print("splitting", q, "(" + str(total), "jobs) by", param)
+            for v in values:
+                sub_q = q + "&" + param + "=" + quote(v)
+                refined.append((sub_q, count(sub_q)))
+    queries = refined
+
+
+for q, total in queries:
+    if total > max_results_per_query:
+        raise Exception("query '" + q + "' has " + str(total) + " jobs, exceeds cap. no more fallbacks to split by.")
+
+
+# scrape each query, paginating until we hit the limit or run out
 jobs_saved = 0
 
-for sub_id in subclassifications:
+for q, total in queries:
     if jobs_saved >= limit:
         break
 
     page = 1
     while jobs_saved < limit:
-        search_url = "https://www.seek.com.au/api/jobsearch/v5/search?subclassification=" + sub_id + "&page=" + str(page)
+        search_url = search_base + q + "&page=" + str(page)
         search_response = session.get(search_url, impersonate="chrome100")
-        search_results = search_response.json()
+        jobs = search_response.json()["data"]
 
-        if page == 1:
-            sub_total = search_results["totalCount"]
-            print("subclassification", sub_id, "-", sub_total, "jobs")
-            if sub_total > max_results_per_query:
-                print("  warning: exceeds cap of", max_results_per_query, "- only top", max_results_per_query, "will be fetched")
-
-        jobs = search_results["data"]
         if len(jobs) == 0:
             break
 

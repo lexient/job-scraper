@@ -2,6 +2,7 @@
 
 from curl_cffi import requests
 from urllib.parse import quote
+import json
 import os
 import sys
 import time
@@ -15,12 +16,13 @@ session = requests.Session()
 max_results_per_query = 20 * 27
 
 
-# classification 6281 (ICT). reseed from seek's frontend subclassification dropdown
-subclassifications = [
-    "6282", "6283", "6284", "6285", "6286", "6287", "6288", "6289",
-    "6290", "6291", "6292", "6293", "6294", "6295", "6296", "6297",
-    "6298", "6299", "6300", "6301", "6302", "6303",
-]
+# subclassifications come from seek_taxonomy.json - rerun seek_taxonomy.py to refresh
+classification_id = "6281"  # Information & Communication Technology
+
+taxonomy_file = open("seek_taxonomy.json")
+taxonomy = json.load(taxonomy_file)
+taxonomy_file.close()
+subclassifications = list(taxonomy[classification_id]["subclassifications"].keys())
 
 
 regions = [

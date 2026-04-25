@@ -31,7 +31,9 @@ To get full coverage the script splits the query by subclassification. Any subcl
 
 ## Taxonomy
 
-`seek_taxonomy.py` scrapes the full classification/subclassification tree from seek's `/jobs` filter sidebar. Run it to reseed `subclassifications` in `scrape.py` when targeting a different classification. Output is written to `seek_taxonomy.json`.
+`scrape.py` loads subclassifications from `seek_taxonomy.json` at startup, keyed by `classification_id`. To target a different category, change that variable.
+
+`seek_taxonomy.py` rebuilds the taxonomy by scraping the classification/subclassification checkboxes from seek's `/jobs` filter sidebar. Re-run it when seek adds or renames categories.
 
 ```bash
 python seek_taxonomy.py

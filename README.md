@@ -38,3 +38,11 @@ To get full coverage the script splits the query by subclassification. Any subcl
 ```bash
 python seek_taxonomy.py
 ```
+
+## Cleaning
+
+`clean.py` walks `jobs/*.html`, extracts the job ad body (via `data-automation="jobAdDetails"` with `"jobDescription"` as fallback), and writes markdown to `jobs_md/*.md`. Skips files already converted.
+
+```bash
+python clean.py
+```

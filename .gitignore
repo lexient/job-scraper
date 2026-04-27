@@ -2,3 +2,5 @@
 .DS_Store
 .venv/
 jobs/
+jobs_md/
+journal.md

@@ -41,7 +41,7 @@ python seek_taxonomy.py
 
 ## Cleaning
 
-`clean.py` walks `jobs/*.html`, extracts the job ad body (via `data-automation="jobAdDetails"` with `"jobDescription"` as fallback), and writes markdown to `jobs_md/*.md`. Skips files already converted.
+`clean.py` walks `jobs/*.html`, extracts the job ad body (via `data-automation="jobAdDetails"` with `"jobDescription"` as fallback), and writes markdown to `jobs_md/*.md`. Each output file has YAML frontmatter (id, title, company, location, work type, salary, classifications, rating, url) followed by the markdownified ad body.
 
 ```bash
 python clean.py

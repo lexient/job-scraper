@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 from bs4 import BeautifulSoup
+from db import connect, upsert_job_details
 import markdownify
 import os
-import yaml
 
 
 # selectors for the job ad body on a seek listing page, in preference order
@@ -40,10 +40,7 @@ def extract_classifications(soup):
     return [a.get_text(strip=True) for a in el.find_all("a")]
 
 
-# make folder for markdown output if it doesnt exist
-if not os.path.exists("jobs_md"):
-    os.makedirs("jobs_md")
-
+db = connect()
 
 converted = 0
 
@@ -69,25 +66,24 @@ for filename in sorted(os.listdir("jobs")):
         print("no ad body for", job_id)
         continue
 
-    meta = {"id": job_id}
+    meta = {}
     for key, marker in meta_fields.items():
         meta[key] = extract_text(soup, marker)
     meta["classifications"] = extract_classifications(soup)
     meta["url"] = "https://www.seek.com.au/job/" + job_id
 
-    md_body = markdownify.markdownify(str(body), heading_style="ATX").strip()
+    md = markdownify.markdownify(str(body), heading_style="ATX").strip()
 
-    out_path = "jobs_md/" + job_id + ".md"
-    out_file = open(out_path, "w")
-    out_file.write("---\n")
-    yaml.safe_dump(meta, out_file, sort_keys=False, allow_unicode=True)
-    out_file.write("---\n\n")
-    out_file.write(md_body)
-    out_file.write("\n")
-    out_file.close()
+    upsert_job_details(db, job_id, meta, md)
 
     converted = converted + 1
     print(converted, job_id)
+
+    if converted % 50 == 0:
+        db.commit()
+
+db.commit()
+db.close()
 
 print()
 print("converted", converted, "files")

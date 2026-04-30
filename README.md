@@ -19,8 +19,13 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
+
+# scrape - downloads html to jobs/ and writes api data to seek.db
 python scrape.py
 ## or scrape.py [limit]
+
+# extract markdown + metadata from the scraped html into seek.db
+python clean.py
 ```
 
 ## Pagination
@@ -41,8 +46,29 @@ python seek_taxonomy.py
 
 ## Cleaning
 
-`clean.py` walks `jobs/*.html`, extracts the job ad body (via `data-automation="jobAdDetails"` with `"jobDescription"` as fallback), and writes markdown to `jobs_md/*.md`. Each output file has YAML frontmatter (id, title, company, location, work type, salary, classifications, rating, url) followed by the markdownified ad body.
+`clean.py` walks `jobs/*.html`, extracts the job ad body (via `data-automation="jobAdDetails"` with `"jobDescription"` as fallback), pulls metadata fields (title, company, location, work type, salary, classifications, rating, url), converts the body to markdown, and upserts into the `job_details` table.
 
 ```bash
 python clean.py
+```
+
+## Database
+
+All data lives in `seek.db` (sqlite). Two tables, linked by job `id`:
+
+- `jobs` — one row per listing returned by the search API (`scrape.py` populates this, including the full response as `raw_json` for reprocessing).
+- `job_details` — one row per scraped detail page (`clean.py` populates this with markdown and extracted fields).
+
+Schema is created automatically on first connect. To init explicitly:
+
+```bash
+python db.py
+```
+
+Query with the sqlite cli:
+
+```bash
+sqlite3 seek.db
+sqlite> SELECT COUNT(*) FROM jobs;
+sqlite> SELECT j.title, j.company, d.rating FROM jobs j JOIN job_details d USING(id) LIMIT 10;
 ```

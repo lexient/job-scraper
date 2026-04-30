@@ -2,6 +2,7 @@
 
 from curl_cffi import requests
 from urllib.parse import quote
+from db import connect, upsert_job
 import json
 import os
 import sys
@@ -54,6 +55,9 @@ else:
 # make folder for jobs if it doesnt exist
 if not os.path.exists("jobs"):
     os.makedirs("jobs")
+
+
+db = connect()
 
 
 search_base = "https://www.seek.com.au/api/jobsearch/v5/search?"
@@ -110,6 +114,9 @@ for q, total in queries:
             job_id = job["id"]
             job_title = job["title"]
 
+            # upsert the api listing data regardless of whether we download the html
+            upsert_job(db, job)
+
             filename = "jobs/" + str(job_id) + ".html"
             if os.path.exists(filename):
                 continue
@@ -128,4 +135,7 @@ for q, total in queries:
             if jobs_saved >= limit:
                 break
 
+        db.commit()
         page = page + 1
+
+db.close()

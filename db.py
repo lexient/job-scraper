@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 import json
 import sqlite3
 
@@ -7,9 +8,6 @@ import sqlite3
 db_path = "seek.db"
 
 
-# jobs = data from the /search api response
-# job_details = data extracted from the /job/<id> html page (body + frontmatter fields)
-# linked by id (no FK so clean.py can run on pre-existing html without a jobs row)
 schema = """
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -26,6 +24,9 @@ CREATE TABLE IF NOT EXISTS jobs (
     listing_date TEXT,
     url TEXT,
     raw_json TEXT,
+    raw_html TEXT,
+    html_hash TEXT,
+    html_fetched_at TEXT,
     scraped_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS job_details (
     classifications TEXT,
     url TEXT,
     markdown TEXT,
+    source_hash TEXT,
     cleaned_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -81,11 +83,11 @@ def upsert_job(conn, job):
     ))
 
 
-def upsert_job_details(conn, job_id, meta, markdown):
+def upsert_job_details(conn, job_id, meta, markdown, source_hash):
     conn.execute("""
         INSERT OR REPLACE INTO job_details
-        (id, title, company, location, work_type, salary, rating, classifications, url, markdown)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, title, company, location, work_type, salary, rating, classifications, url, markdown, source_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         job_id,
         meta.get("title"),
@@ -97,7 +99,19 @@ def upsert_job_details(conn, job_id, meta, markdown):
         json.dumps(meta.get("classifications", [])),
         meta.get("url"),
         markdown,
+        source_hash,
     ))
+
+
+def hash_html(html):
+    return hashlib.sha256(html.encode()).hexdigest()
+
+
+def upsert_job_html(conn, job_id, html):
+    conn.execute(
+        "UPDATE jobs SET raw_html = ?, html_hash = ?, html_fetched_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (html, hash_html(html), job_id),
+    )
 
 
 if __name__ == "__main__":

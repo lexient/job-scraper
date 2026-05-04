@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
+from bs4 import BeautifulSoup
 from curl_cffi import AsyncSession
 from urllib.parse import quote
-from db import connect, upsert_job
+from db import connect, hash_html, upsert_job, upsert_job_details, upsert_job_html
 import asyncio
 import json
 import log
-import os
+import markdownify
 import sys
 import time
 
@@ -50,10 +51,6 @@ else:
     limit = 5
 
 
-if not os.path.exists("output/jobs"):
-    os.makedirs("output/jobs")
-
-
 db = connect()
 
 
@@ -74,24 +71,77 @@ def is_blocked(html):
     return "jobAdDetails" not in html and "jobDescription" not in html
 
 
-async def fetch_and_save(session, sem, job, filename, idx, total_n):
+body_selectors = [
+    {"data-automation": "jobAdDetails"},
+    {"data-automation": "jobDescription"},
+]
+
+meta_fields = {
+    "title": "job-detail-title",
+    "company": "advertiser-name",
+    "location": "job-detail-location",
+    "work_type": "job-detail-work-type",
+    "salary": "job-detail-salary",
+    "rating": "company-review",
+}
+
+
+def _extract_text(soup, marker):
+    el = soup.find(attrs={"data-automation": marker})
+    if not el:
+        return None
+    return el.get_text(strip=True) or None
+
+
+def _extract_classifications(soup):
+    el = soup.find(attrs={"data-automation": "job-detail-classifications"})
+    if not el:
+        return []
+    return [a.get_text(strip=True) for a in el.find_all("a")]
+
+
+# None means body marker is missing - layout change
+def parse_job_html(html, job_id):
+    soup = BeautifulSoup(html, "lxml")
+    body = None
+    for attrs in body_selectors:
+        body = soup.find("div", attrs=attrs)
+        if body:
+            break
+    if not body:
+        return None
+    meta = {k: _extract_text(soup, m) for k, m in meta_fields.items()}
+    meta["classifications"] = _extract_classifications(soup)
+    meta["url"] = "https://www.seek.com.au/job/" + job_id
+    md = markdownify.markdownify(str(body), heading_style="ATX").strip()
+    return meta, md
+
+
+async def fetch_and_save(session, sem, job, idx, total_n):
     url = "https://www.seek.com.au/job/" + str(job["id"])
+    job_id = str(job["id"])
     async with sem:
         await asyncio.sleep(delay)
         for attempt in range(len(retry_waits) + 1):
             response = await session.get(url, impersonate="chrome100")
             if not is_blocked(response.text):
-                file = open(filename, "w")
-                file.write(response.text)
-                file.close()
-                log.info(idx, "/", total_n, job["id"], "-", job["title"])
+                html = response.text
+                upsert_job_html(db, job_id, html)
+                parsed = parse_job_html(html, job_id)
+                if parsed is not None:
+                    meta, markdown = parsed
+                    upsert_job_details(db, job_id, meta, markdown, hash_html(html))
+                else:
+                    log.error(idx, "/", total_n, job_id, "- saved html but couldnt parse body")
+                db.commit()
+                log.info(idx, "/", total_n, job_id, "-", job["title"])
                 return "added"
             # semaphore slot is held through the waits
             if attempt < len(retry_waits):
                 wait = retry_waits[attempt]
-                log.warn(idx, "/", total_n, job["id"], "- blocked, retry in", wait, "s")
+                log.warn(idx, "/", total_n, job_id, "- blocked, retry in", wait, "s")
                 await asyncio.sleep(wait)
-        log.error(idx, "/", total_n, job["id"], "- blocked after retries")
+        log.error(idx, "/", total_n, job_id, "- blocked after retries")
         return "blocked"
 
 
@@ -144,24 +194,25 @@ async def main():
             upsert_job(db, job)
         db.commit()
 
+        have_html = {r[0] for r in db.execute(
+            "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
+        ).fetchall()}
         to_fetch = []
         seen = set()
         for job in all_jobs:
             job_id = str(job["id"])
-            if job_id in seen:
+            if job_id in seen or job_id in have_html:
                 continue
             seen.add(job_id)
-            filename = "output/jobs/" + job_id + ".html"
-            if not os.path.exists(filename):
-                to_fetch.append((job, filename))
+            to_fetch.append(job)
 
-        already_have = len(seen) - len(to_fetch)
+        already_have = len(have_html & {str(j["id"]) for j in all_jobs})
         to_fetch = to_fetch[:limit]
-        log.info("downloading", len(to_fetch), "job pages (" + str(already_have), "already on disk)")
+        log.info("downloading", len(to_fetch), "job pages (" + str(already_have), "already in db)")
 
         results = await asyncio.gather(*[
-            fetch_and_save(session, sem, job, filename, i + 1, len(to_fetch))
-            for i, (job, filename) in enumerate(to_fetch)
+            fetch_and_save(session, sem, job, i + 1, len(to_fetch))
+            for i, job in enumerate(to_fetch)
         ])
 
     db.close()

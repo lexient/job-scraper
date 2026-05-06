@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 
 import hashlib
-import json
-import sqlite3
+import os
+
+import psycopg
+from psycopg.types.json import Jsonb
+from dotenv import load_dotenv
 
 
-db_path = "seek.db"
+load_dotenv(override=True)
+
+database_url = os.environ.get("DATABASE_URL", "postgresql://seek:seek@localhost:5432/seek")
 
 
 schema = """
@@ -23,11 +28,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     salary_label TEXT,
     listing_date TEXT,
     url TEXT,
-    raw_json TEXT,
+    raw_json JSONB,
     raw_html TEXT,
     html_hash TEXT,
-    html_fetched_at TEXT,
-    scraped_at TEXT DEFAULT CURRENT_TIMESTAMP
+    html_fetched_at TIMESTAMPTZ,
+    scraped_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS job_details (
@@ -38,19 +43,24 @@ CREATE TABLE IF NOT EXISTS job_details (
     work_type TEXT,
     salary TEXT,
     rating TEXT,
-    classifications TEXT,
+    classifications TEXT[],
     url TEXT,
     markdown TEXT,
     source_hash TEXT,
-    cleaned_at TEXT DEFAULT CURRENT_TIMESTAMP
+    cleaned_at TIMESTAMPTZ DEFAULT NOW()
 );
 """
 
 
 def connect():
-    conn = sqlite3.connect(db_path)
-    conn.executescript(schema)
-    return conn
+    return psycopg.connect(database_url)
+
+
+def init():
+    conn = connect()
+    conn.execute(schema)
+    conn.commit()
+    conn.close()
 
 
 def upsert_job(conn, job):
@@ -61,10 +71,24 @@ def upsert_job(conn, job):
     work_arrangement = (job.get("workArrangements") or {}).get("displayText")
 
     conn.execute("""
-        INSERT OR REPLACE INTO jobs
+        INSERT INTO jobs
         (id, title, teaser, company, advertiser_id, classification, subclassification,
          location, work_type, work_arrangement, salary_label, listing_date, url, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            teaser = EXCLUDED.teaser,
+            company = EXCLUDED.company,
+            advertiser_id = EXCLUDED.advertiser_id,
+            classification = EXCLUDED.classification,
+            subclassification = EXCLUDED.subclassification,
+            location = EXCLUDED.location,
+            work_type = EXCLUDED.work_type,
+            work_arrangement = EXCLUDED.work_arrangement,
+            salary_label = EXCLUDED.salary_label,
+            listing_date = EXCLUDED.listing_date,
+            url = EXCLUDED.url,
+            raw_json = EXCLUDED.raw_json
     """, (
         job_id,
         job.get("title"),
@@ -79,15 +103,27 @@ def upsert_job(conn, job):
         job.get("salaryLabel"),
         job.get("listingDate"),
         "https://www.seek.com.au/job/" + job_id,
-        json.dumps(job),
+        Jsonb(job),
     ))
 
 
 def upsert_job_details(conn, job_id, meta, markdown, source_hash):
     conn.execute("""
-        INSERT OR REPLACE INTO job_details
+        INSERT INTO job_details
         (id, title, company, location, work_type, salary, rating, classifications, url, markdown, source_hash)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE SET
+            title = EXCLUDED.title,
+            company = EXCLUDED.company,
+            location = EXCLUDED.location,
+            work_type = EXCLUDED.work_type,
+            salary = EXCLUDED.salary,
+            rating = EXCLUDED.rating,
+            classifications = EXCLUDED.classifications,
+            url = EXCLUDED.url,
+            markdown = EXCLUDED.markdown,
+            source_hash = EXCLUDED.source_hash,
+            cleaned_at = NOW()
     """, (
         job_id,
         meta.get("title"),
@@ -96,7 +132,7 @@ def upsert_job_details(conn, job_id, meta, markdown, source_hash):
         meta.get("work_type"),
         meta.get("salary"),
         meta.get("rating"),
-        json.dumps(meta.get("classifications", [])),
+        meta.get("classifications") or None,
         meta.get("url"),
         markdown,
         source_hash,
@@ -109,12 +145,11 @@ def hash_html(html):
 
 def upsert_job_html(conn, job_id, html):
     conn.execute(
-        "UPDATE jobs SET raw_html = ?, html_hash = ?, html_fetched_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "UPDATE jobs SET raw_html = %s, html_hash = %s, html_fetched_at = NOW() WHERE id = %s",
         (html, hash_html(html), job_id),
     )
 
 
 if __name__ == "__main__":
-    conn = connect()
-    conn.close()
-    print("initialized", db_path)
+    init()
+    print("initialized", database_url)

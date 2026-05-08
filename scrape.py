@@ -2,8 +2,12 @@
 
 from bs4 import BeautifulSoup
 from curl_cffi import AsyncSession
+from datetime import datetime, timezone
 from urllib.parse import quote
-from db import connect, hash_html, upsert_job, upsert_job_details, upsert_job_html
+from db import (
+    connect, log_history, mark_expired, sweep_delisted,
+    upsert_job, upsert_job_details, upsert_job_html,
+)
 import asyncio
 import json
 import log
@@ -71,6 +75,11 @@ def is_blocked(html):
     return "jobAdDetails" not in html and "jobDescription" not in html
 
 
+# expired ads 200 with an expiredJobPage container; without this we'd retry forever
+def is_expired(html):
+    return 'data-automation="expiredJobPage"' in html
+
+
 body_selectors = [
     {"data-automation": "jobAdDetails"},
     {"data-automation": "jobDescription"},
@@ -124,13 +133,20 @@ async def fetch_and_save(session, sem, job, idx, total_n):
         await asyncio.sleep(delay)
         for attempt in range(len(retry_waits) + 1):
             response = await session.get(url, impersonate="chrome100")
+            if is_expired(response.text):
+                mark_expired(db, job_id, response.text)
+                db.commit()
+                log.info(idx, "/", total_n, job_id, "- expired")
+                return "expired"
             if not is_blocked(response.text):
                 html = response.text
-                upsert_job_html(db, job_id, html)
+                prev_hash, new_hash = upsert_job_html(db, job_id, html)
                 parsed = parse_job_html(html, job_id)
                 if parsed is not None:
                     meta, markdown = parsed
-                    upsert_job_details(db, job_id, meta, markdown, hash_html(html))
+                    upsert_job_details(db, job_id, meta, markdown, new_hash)
+                    if prev_hash is not None and prev_hash != new_hash:
+                        log_history(db, job_id, "html_changed", html_hash=new_hash, markdown=markdown)
                 else:
                     log.error(idx, "/", total_n, job_id, "- saved html but couldnt parse body")
                 db.commit()
@@ -190,9 +206,22 @@ async def main():
 
         log.info("collected", len(all_jobs), "listings")
 
+        refetch_ids = set()
+        new_count = 0
+        changed_count = 0
+        relisted_count = 0
         for job in all_jobs:
-            upsert_job(db, job)
+            event = upsert_job(db, job)
+            if event == "first_seen":
+                new_count += 1
+            elif event == "changed":
+                changed_count += 1
+                refetch_ids.add(str(job["id"]))
+            elif event == "relisted":
+                relisted_count += 1
+                refetch_ids.add(str(job["id"]))
         db.commit()
+        log.info("phase 1 -", new_count, "new,", changed_count, "changed,", relisted_count, "relisted")
 
         have_html = {r[0] for r in db.execute(
             "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
@@ -201,12 +230,14 @@ async def main():
         seen = set()
         for job in all_jobs:
             job_id = str(job["id"])
-            if job_id in seen or job_id in have_html:
+            if job_id in seen:
+                continue
+            if job_id in have_html and job_id not in refetch_ids:
                 continue
             seen.add(job_id)
             to_fetch.append(job)
 
-        already_have = len(have_html & {str(j["id"]) for j in all_jobs})
+        already_have = len(have_html & {str(j["id"]) for j in all_jobs}) - len(refetch_ids & have_html)
         to_fetch = to_fetch[:limit]
         log.info("downloading", len(to_fetch), "job pages (" + str(already_have), "already in db)")
 
@@ -215,14 +246,19 @@ async def main():
             for i, job in enumerate(to_fetch)
         ])
 
+        delisted = sweep_delisted(db, run_started_at)
+        db.commit()
+
     db.close()
 
     added = results.count("added")
+    expired = results.count("expired")
     blocked = results.count("blocked")
-    log.info("added", added, "- blocked", blocked, "- skipped", already_have)
+    log.info("added", added, "- expired", expired, "- blocked", blocked, "- skipped", already_have, "- delisted", delisted)
 
 
 start = time.time()
+run_started_at = datetime.now(timezone.utc)
 asyncio.run(main())
 elapsed = int(time.time() - start)
 log.info("completed in", elapsed // 60, "m", elapsed % 60, "s")

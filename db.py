@@ -270,6 +270,17 @@ def sweep_delisted(conn, run_started_at):
     return len(rows)
 
 
+def purge_stranded(conn):
+    # delisted/expired with no body will never be fetchable - drop them
+    rows = conn.execute("""
+        DELETE FROM jobs
+        WHERE (delisted_at IS NOT NULL OR expired_at IS NOT NULL)
+          AND raw_html IS NULL
+        RETURNING id
+    """).fetchall()
+    return len(rows)
+
+
 if __name__ == "__main__":
     init()
     print("initialized", database_url)

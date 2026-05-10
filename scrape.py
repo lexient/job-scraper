@@ -5,13 +5,14 @@ from curl_cffi import AsyncSession
 from datetime import datetime, timezone
 from urllib.parse import quote
 from db import (
-    connect, log_history, mark_expired, sweep_delisted,
+    connect, log_history, mark_expired, purge_stranded, sweep_delisted,
     upsert_job, upsert_job_details, upsert_job_html,
 )
 import asyncio
 import json
 import log
 import markdownify
+import os
 import sys
 import time
 
@@ -21,9 +22,9 @@ classification_id = "6281"  # Information & Communication Technology
 # 20 results per page, 27 pages max per query
 max_results_per_query = 20 * 27
 
-concurrency = 8
-delay = 0.05
-retry_waits = [1, 2, 4, 8, 16, 32, 64]
+concurrency = int(os.environ.get("CONCURRENCY", "8"))
+delay = 0.1
+retry_waits = [1, 2, 4, 8, 16, 32]
 
 taxonomy_file = open("seek_taxonomy.json")
 taxonomy = json.load(taxonomy_file)
@@ -58,16 +59,28 @@ else:
 db = connect()
 
 
+def _parse_search(response, ctx):
+    try:
+        return response.json()
+    except Exception:
+        log.error(ctx, "- status", response.status_code, "ct", response.headers.get("content-type"), "body:", response.text[:300])
+        raise
+
+
 async def count(session, sem, query):
     async with sem:
         response = await session.get(search_endpoint + query + "&page=1", impersonate="chrome146")
-        return response.json()["totalCount"]
+        return _parse_search(response, "count " + query)["totalCount"]
 
 
 async def fetch_page(session, sem, query, page):
     async with sem:
-        response = await session.get(search_endpoint + query + "&page=" + str(page), impersonate="chrome146")
-        return response.json()["data"]
+        try:
+            response = await session.get(search_endpoint + query + "&page=" + str(page), impersonate="chrome146")
+            return _parse_search(response, "page " + str(page) + " " + query)["data"]
+        except Exception as e:
+            log.error("page", page, query, "- dropped:", repr(e)[:120])
+            return None
 
 
 # shadow-blocked: 200 with empty react shell
@@ -171,7 +184,7 @@ async def main():
         for q, t in queries:
             sub_id = q.split("=")[1]
             name = taxonomy[classification_id]["subclassifications"].get(sub_id, sub_id)
-            log.info("subclassification", name, "-", t, "jobs")
+            log.info(name, "-", t, "jobs")
 
         for param, values in fallbacks:
             refined = []
@@ -198,13 +211,17 @@ async def main():
                 search_tasks.append(fetch_page(session, sem, q, page))
         log.info("fetching", len(search_tasks), "search pages")
         all_pages = await asyncio.gather(*search_tasks)
+        dropped_pages = sum(1 for p in all_pages if p is None)
+        partial_sweep = dropped_pages > 0
 
         all_jobs = []
         for jobs in all_pages:
+            if jobs is None:
+                continue
             for job in jobs:
                 all_jobs.append(job)
 
-        log.info("collected", len(all_jobs), "listings")
+        log.info("collected", len(all_jobs), "listings" + (" (" + str(dropped_pages) + " pages dropped)" if dropped_pages else ""))
 
         refetch_ids = set()
         new_count = 0
@@ -246,7 +263,12 @@ async def main():
             for i, job in enumerate(to_fetch)
         ])
 
-        delisted = sweep_delisted(db, run_started_at)
+        if partial_sweep:
+            log.warn("partial sweep, skipping delisted sweep")
+            delisted = 0
+        else:
+            delisted = sweep_delisted(db, run_started_at)
+        purged = purge_stranded(db)
         db.commit()
 
     db.close()
@@ -254,7 +276,7 @@ async def main():
     added = results.count("added")
     expired = results.count("expired")
     blocked = results.count("blocked")
-    log.info("added", added, "- expired", expired, "- blocked", blocked, "- skipped", already_have, "- delisted", delisted)
+    log.info("added", added, "- expired", expired, "- blocked", blocked, "- skipped", already_have, "- delisted", delisted, "- purged", purged)
 
 
 start = time.time()

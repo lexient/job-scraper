@@ -59,6 +59,9 @@ else:
 db = connect()
 
 
+
+
+
 def _parse_search(response, ctx):
     try:
         return response.json()
@@ -139,6 +142,7 @@ def parse_job_html(html, job_id):
     return meta, md
 
 
+
 async def fetch_and_save(session, sem, job, idx, total_n):
     url = "https://www.seek.com.au/job/" + str(job["id"])
     job_id = str(job["id"])
@@ -175,6 +179,7 @@ async def fetch_and_save(session, sem, job, idx, total_n):
 
 
 async def main():
+    # curl_cffi default max_clients is 10. https://curl-cffi.readthedocs.io/en/latest/api.html
     async with AsyncSession(max_clients=concurrency) as session:
         sem = asyncio.Semaphore(concurrency)
 
@@ -223,6 +228,7 @@ async def main():
 
         log.info("collected", len(all_jobs), "listings" + (" (" + str(dropped_pages) + " pages dropped)" if dropped_pages else ""))
 
+        # track ids whose listing changed so phase 2 re-fetches even if raw_html exists
         refetch_ids = set()
         new_count = 0
         changed_count = 0
@@ -240,6 +246,7 @@ async def main():
         db.commit()
         log.info("phase 1 -", new_count, "new,", changed_count, "changed,", relisted_count, "relisted")
 
+        # dedup ids that appear under multiple queries; skip ids with raw_html unless changed
         have_html = {r[0] for r in db.execute(
             "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
         ).fetchall()}

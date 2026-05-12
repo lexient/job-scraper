@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: seek-match-postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: seek
+      POSTGRES_PASSWORD: seek
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - seek-match-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seek -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://seek:seek@postgres:5432/postgres}
+      SCRAPE_LIMIT: ${SCRAPE_LIMIT:-99999}
+      SCRAPE_INTERVAL_SECONDS: ${SCRAPE_INTERVAL_SECONDS:-1800}
+      CONCURRENCY: ${CONCURRENCY:-8}
+    command:
+      - sh
+      - -c
+      - |
+        python -u db.py
+        while true; do
+          date -u +"scrape start %Y-%m-%dT%H:%M:%SZ"
+          if python -u scrape.py "$$SCRAPE_LIMIT"; then
+            date -u +"scrape done  %Y-%m-%dT%H:%M:%SZ"
+          else
+            date -u +"scrape failed %Y-%m-%dT%H:%M:%SZ"
+          fi
+          sleep "$$SCRAPE_INTERVAL_SECONDS"
+        done
+    restart: unless-stopped
+
+volumes:
+  seek-match-pgdata:
+    name: seek-match-pgdata

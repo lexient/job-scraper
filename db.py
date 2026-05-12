@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-database_url = os.environ.get("DATABASE_URL", "postgresql://seek:seek@localhost:5432/seek")
+_port = os.environ.get("POSTGRES_HOST_PORT", "5432")
+database_url = os.environ.get("DATABASE_URL", f"postgresql://seek:seek@localhost:{_port}/postgres")
 
 
 schema = """
@@ -29,6 +30,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     salary_label TEXT,
     listing_date TEXT,
     url TEXT,
+    role_id TEXT,
+    display_type TEXT,
+    is_featured BOOLEAN,
+    bullet_points TEXT[],
+    tags TEXT[],
     raw_json JSONB,
     raw_html TEXT,
     html_hash TEXT,
@@ -119,6 +125,8 @@ def upsert_job(conn, job):
     location = (job.get("locations") or [{}])[0].get("label")
     work_type = (job.get("workTypes") or [None])[0]
     work_arrangement = (job.get("workArrangements") or {}).get("displayText")
+    tags = [t.get("type") for t in (job.get("tags") or []) if t.get("type")]
+    bullet_points = job.get("bulletPoints") or []
     chash = content_hash(job)
 
     prev = conn.execute(
@@ -132,9 +140,10 @@ def upsert_job(conn, job):
     conn.execute("""
         INSERT INTO jobs
         (id, title, teaser, company, advertiser_id, classification, subclassification,
-         location, work_type, work_arrangement, salary_label, listing_date, url, raw_json,
+         location, work_type, work_arrangement, salary_label, listing_date, url,
+         role_id, display_type, is_featured, bullet_points, tags, raw_json,
          content_hash, content_changed_at, last_seen_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, NOW(), NOW())
         ON CONFLICT (id) DO UPDATE SET
             title = EXCLUDED.title,
@@ -149,6 +158,11 @@ def upsert_job(conn, job):
             salary_label = EXCLUDED.salary_label,
             listing_date = EXCLUDED.listing_date,
             url = EXCLUDED.url,
+            role_id = EXCLUDED.role_id,
+            display_type = EXCLUDED.display_type,
+            is_featured = EXCLUDED.is_featured,
+            bullet_points = EXCLUDED.bullet_points,
+            tags = EXCLUDED.tags,
             raw_json = EXCLUDED.raw_json,
             content_hash = EXCLUDED.content_hash,
             content_changed_at = CASE
@@ -171,6 +185,11 @@ def upsert_job(conn, job):
         job.get("salaryLabel"),
         job.get("listingDate"),
         "https://www.seek.com.au/job/" + job_id,
+        job.get("roleId"),
+        job.get("displayType"),
+        bool(job.get("isFeatured")),
+        bullet_points or None,
+        tags or None,
         Jsonb(job),
         chash,
     ))

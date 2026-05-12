@@ -2,9 +2,9 @@ import logging
 import sys
 
 
-_COLORS = {"WARN": "\033[33m", "ERROR": "\033[31m"}
+_COLOURS = {"WARN": "\033[33m", "ERROR": "\033[31m"}
 _RESET = "\033[0m"
-_USE_COLOR = sys.stdout.isatty()
+_USE_COLOUR = sys.stdout.isatty()
 
 
 class _Formatter(logging.Formatter):
@@ -12,8 +12,8 @@ class _Formatter(logging.Formatter):
         if record.levelname == "WARNING":
             record.levelname = "WARN"
         line = super().format(record)
-        if _USE_COLOR and record.levelname in _COLORS:
-            return _COLORS[record.levelname] + line + _RESET
+        if _USE_COLOUR and record.levelname in _COLOURS:
+            return _COLOURS[record.levelname] + line + _RESET
         return line
 
 

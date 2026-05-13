@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-name=seek-match-postgres
+name=job-scraper-postgres
 port=${POSTGRES_HOST_PORT:-5432}
 
 if docker ps -a --format '{{.Names}}' | grep -q "^${name}$"; then
@@ -13,7 +13,7 @@ else
         -e POSTGRES_USER=seek \
         -e POSTGRES_PASSWORD=seek \
         -p ${port}:5432 \
-        -v seek-match-pgdata:/var/lib/postgresql/data \
+        -v job-scraper-pgdata:/var/lib/postgresql/data \
         postgres:17 >/dev/null
 fi
 

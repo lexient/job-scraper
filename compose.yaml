@@ -1,7 +1,9 @@
+name: job-scraper
+
 services:
   postgres:
     image: postgres:17
-    container_name: seek-match-postgres
+    container_name: job-scraper-postgres
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: seek
@@ -9,7 +11,7 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
-      - seek-match-pgdata:/var/lib/postgresql/data
+      - job-scraper-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U seek -d postgres"]
       interval: 5s
@@ -45,5 +47,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  seek-match-pgdata:
-    name: seek-match-pgdata
+  job-scraper-pgdata:
+    name: job-scraper-pgdata

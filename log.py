@@ -20,7 +20,7 @@ class _Formatter(logging.Formatter):
 _handler = logging.StreamHandler(sys.stdout)
 _handler.setFormatter(_Formatter(fmt="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"))
 
-_logger = logging.getLogger("seek-match")
+_logger = logging.getLogger("job-scraper")
 _logger.setLevel(logging.DEBUG)
 _logger.addHandler(_handler)
 _logger.propagate = False

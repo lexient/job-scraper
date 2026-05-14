@@ -33,8 +33,7 @@ config.set_main_option("sqlalchemy.url", database_url)
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-# import models here so they register with SQLModel.metadata before autogenerate runs
-# from models import *  # noqa: F401, F403
+import models  # noqa: F401  registers SQLModel tables before autogenerate runs
 target_metadata = SQLModel.metadata
 
 # other values from the config, defined by the needs of env.py,

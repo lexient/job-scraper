@@ -9,6 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY scrape.py db.py log.py seek_taxonomy.json ./
+COPY scrape.py db.py log.py models.py seek_taxonomy.json alembic.ini ./
+COPY migrations ./migrations
 
 CMD ["python", "-u", "scrape.py"]

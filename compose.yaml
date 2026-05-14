@@ -34,7 +34,7 @@ services:
       - sh
       - -c
       - |
-        python -u db.py
+        alembic upgrade head
         while true; do
           date -u +"scrape start %Y-%m-%dT%H:%M:%SZ"
           if python -u scrape.py "$$SCRAPE_LIMIT"; then

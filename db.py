@@ -15,78 +15,8 @@ _port = os.environ.get("POSTGRES_HOST_PORT", "5432")
 database_url = os.environ.get("DATABASE_URL", f"postgresql://seek:seek@localhost:{_port}/postgres")
 
 
-schema = """
-CREATE TABLE IF NOT EXISTS jobs (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    teaser TEXT,
-    company TEXT,
-    advertiser_id TEXT,
-    classification TEXT,
-    subclassification TEXT,
-    location TEXT,
-    work_type TEXT,
-    work_arrangement TEXT,
-    salary_label TEXT,
-    listing_date TEXT,
-    url TEXT,
-    role_id TEXT,
-    display_type TEXT,
-    is_featured BOOLEAN,
-    bullet_points TEXT[],
-    tags TEXT[],
-    raw_json JSONB,
-    raw_html TEXT,
-    html_hash TEXT,
-    html_fetched_at TIMESTAMPTZ,
-    scraped_at TIMESTAMPTZ DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ,
-    delisted_at TIMESTAMPTZ,
-    expired_at TIMESTAMPTZ,
-    content_hash TEXT,
-    content_changed_at TIMESTAMPTZ
-);
-
-CREATE TABLE IF NOT EXISTS job_details (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    company TEXT,
-    location TEXT,
-    work_type TEXT,
-    salary TEXT,
-    rating TEXT,
-    classifications TEXT[],
-    url TEXT,
-    markdown TEXT,
-    source_hash TEXT,
-    cleaned_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS job_history (
-    id BIGSERIAL PRIMARY KEY,
-    job_id TEXT NOT NULL,
-    observed_at TIMESTAMPTZ DEFAULT NOW(),
-    event TEXT NOT NULL,
-    content_hash TEXT,
-    html_hash TEXT,
-    raw_json JSONB,
-    markdown TEXT
-);
-
-CREATE INDEX IF NOT EXISTS job_history_job_id_idx ON job_history (job_id, observed_at);
-CREATE INDEX IF NOT EXISTS job_history_event_idx ON job_history (event, observed_at);
-"""
-
-
 def connect():
     return psycopg.connect(database_url)
-
-
-def init():
-    conn = connect()
-    conn.execute(schema)
-    conn.commit()
-    conn.close()
 
 
 # excludes tags/bulletPoints which flap
@@ -300,6 +230,3 @@ def purge_stranded(conn):
     return len(rows)
 
 
-if __name__ == "__main__":
-    init()
-    print("initialized", database_url)

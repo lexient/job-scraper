@@ -3,5 +3,8 @@
 !scrape.py
 !db.py
 !log.py
+!models.py
 !seek_taxonomy.json
 !requirements.txt
+!alembic.ini
+!migrations

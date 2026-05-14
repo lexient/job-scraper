@@ -24,5 +24,5 @@ for _ in $(seq 1 60); do
     sleep 0.5
 done
 
-python db.py
+alembic upgrade head
 echo "postgres up on localhost:${port} (db=postgres user=seek)"

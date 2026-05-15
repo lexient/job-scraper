@@ -5,6 +5,7 @@
 !log.py
 !models.py
 !seek_taxonomy.json
-!requirements.txt
+!pyproject.toml
+!uv.lock
 !alembic.ini
 !migrations

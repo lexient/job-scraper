@@ -1,7 +1,6 @@
 import logging
 import sys
 
-
 _COLOURS = {"WARN": "\033[33m", "ERROR": "\033[31m"}
 _RESET = "\033[0m"
 _USE_COLOUR = sys.stdout.isatty()
@@ -18,7 +17,9 @@ class _Formatter(logging.Formatter):
 
 
 _handler = logging.StreamHandler(sys.stdout)
-_handler.setFormatter(_Formatter(fmt="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S"))
+_handler.setFormatter(
+    _Formatter(fmt="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
+)
 
 _logger = logging.getLogger("job-scraper")
 _logger.setLevel(logging.DEBUG)

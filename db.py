@@ -5,14 +5,15 @@ import json
 import os
 
 import psycopg
-from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
-
+from psycopg.types.json import Jsonb
 
 load_dotenv(override=True)
 
 _port = os.environ.get("POSTGRES_HOST_PORT", "5432")
-database_url = os.environ.get("DATABASE_URL", f"postgresql://seek:seek@localhost:{_port}/postgres")
+database_url = os.environ.get(
+    "DATABASE_URL", f"postgresql://seek:seek@localhost:{_port}/postgres"
+)
 
 
 def connect():
@@ -21,18 +22,28 @@ def connect():
 
 # excludes tags/bulletPoints which flap
 _content_keys = [
-    "title", "teaser", "companyName", "salaryLabel",
-    "workArrangements", "workTypes", "classifications",
-    "locations", "listingDate",
+    "title",
+    "teaser",
+    "companyName",
+    "salaryLabel",
+    "workArrangements",
+    "workTypes",
+    "classifications",
+    "locations",
+    "listingDate",
 ]
 
 
 def content_hash(job):
-    serial = json.dumps({k: job.get(k) for k in _content_keys}, sort_keys=True, default=str)
+    serial = json.dumps(
+        {k: job.get(k) for k in _content_keys}, sort_keys=True, default=str
+    )
     return hashlib.sha256(serial.encode()).hexdigest()
 
 
-def log_history(conn, job_id, event, content_hash=None, html_hash=None, raw_json=None, markdown=None):
+def log_history(
+    conn, job_id, event, content_hash=None, html_hash=None, raw_json=None, markdown=None
+):
     conn.execute(
         """
         INSERT INTO job_history (job_id, event, content_hash, html_hash, raw_json, markdown)
@@ -67,7 +78,8 @@ def upsert_job(conn, job):
     prev_hash = prev[0] if prev else None
     was_delisted = bool(prev and prev[1] is not None)
 
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO jobs
         (id, title, teaser, company, advertiser_id, classification, subclassification,
          location, work_type, work_arrangement, salary_label, listing_date, url,
@@ -101,28 +113,30 @@ def upsert_job(conn, job):
             END,
             last_seen_at = NOW(),
             delisted_at = NULL
-    """, (
-        job_id,
-        job.get("title"),
-        job.get("teaser"),
-        job.get("companyName"),
-        (job.get("advertiser") or {}).get("id"),
-        (classif.get("classification") or {}).get("description"),
-        (classif.get("subclassification") or {}).get("description"),
-        location,
-        work_type,
-        work_arrangement,
-        job.get("salaryLabel"),
-        job.get("listingDate"),
-        "https://www.seek.com.au/job/" + job_id,
-        job.get("roleId"),
-        job.get("displayType"),
-        bool(job.get("isFeatured")),
-        bullet_points or None,
-        tags or None,
-        Jsonb(job),
-        chash,
-    ))
+    """,
+        (
+            job_id,
+            job.get("title"),
+            job.get("teaser"),
+            job.get("companyName"),
+            (job.get("advertiser") or {}).get("id"),
+            (classif.get("classification") or {}).get("description"),
+            (classif.get("subclassification") or {}).get("description"),
+            location,
+            work_type,
+            work_arrangement,
+            job.get("salaryLabel"),
+            job.get("listingDate"),
+            "https://www.seek.com.au/job/" + job_id,
+            job.get("roleId"),
+            job.get("displayType"),
+            bool(job.get("isFeatured")),
+            bullet_points or None,
+            tags or None,
+            Jsonb(job),
+            chash,
+        ),
+    )
 
     if is_new:
         log_history(conn, job_id, "first_seen", content_hash=chash, raw_json=job)
@@ -137,7 +151,8 @@ def upsert_job(conn, job):
 
 
 def upsert_job_details(conn, job_id, meta, markdown, source_hash):
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO job_details
         (id, title, company, location, work_type, salary, rating, classifications, url, markdown, source_hash)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -153,19 +168,21 @@ def upsert_job_details(conn, job_id, meta, markdown, source_hash):
             markdown = EXCLUDED.markdown,
             source_hash = EXCLUDED.source_hash,
             cleaned_at = NOW()
-    """, (
-        job_id,
-        meta.get("title"),
-        meta.get("company"),
-        meta.get("location"),
-        meta.get("work_type"),
-        meta.get("salary"),
-        meta.get("rating"),
-        meta.get("classifications") or None,
-        meta.get("url"),
-        markdown,
-        source_hash,
-    ))
+    """,
+        (
+            job_id,
+            meta.get("title"),
+            meta.get("company"),
+            meta.get("location"),
+            meta.get("work_type"),
+            meta.get("salary"),
+            meta.get("rating"),
+            meta.get("classifications") or None,
+            meta.get("url"),
+            markdown,
+            source_hash,
+        ),
+    )
 
 
 def hash_html(html):
@@ -206,14 +223,17 @@ def mark_expired(conn, job_id, html):
 
 
 def sweep_delisted(conn, run_started_at):
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         UPDATE jobs SET delisted_at = NOW()
         WHERE last_seen_at IS NOT NULL
           AND last_seen_at < %s
           AND delisted_at IS NULL
           AND expired_at IS NULL
         RETURNING id
-    """, (run_started_at,)).fetchall()
+    """,
+        (run_started_at,),
+    ).fetchall()
     for (job_id,) in rows:
         log_history(conn, job_id, "delisted")
     return len(rows)
@@ -228,5 +248,3 @@ def purge_stranded(conn):
         RETURNING id
     """).fetchall()
     return len(rows)
-
-

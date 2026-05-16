@@ -12,3 +12,15 @@ dependencies = [
     "python-dotenv>=1.0",
     "sqlmodel>=0.0.22",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+]
+
+[tool.ruff]
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B", "SIM", "I"]
+ignore = ["E501"]

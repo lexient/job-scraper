@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 
-from bs4 import BeautifulSoup
-from curl_cffi import AsyncSession
-from datetime import datetime, timezone
-from urllib.parse import quote
-from db import (
-    connect, log_history, mark_expired, purge_stranded, sweep_delisted,
-    upsert_job, upsert_job_details, upsert_job_html,
-)
 import asyncio
 import json
-import log
-import markdownify
 import os
 import sys
 import time
+from datetime import UTC, datetime
+from urllib.parse import quote
+
+import markdownify
+from bs4 import BeautifulSoup
+from curl_cffi import AsyncSession
+
+import log
+from db import (
+    connect,
+    log_history,
+    mark_expired,
+    purge_stranded,
+    sweep_delisted,
+    upsert_job,
+    upsert_job_details,
+    upsert_job_html,
+)
 
 search_endpoint = "https://www.seek.com.au/api/jobsearch/v5/search?"
 classification_id = "6281"  # Information & Communication Technology
@@ -26,9 +34,8 @@ concurrency = int(os.environ.get("CONCURRENCY", "8"))
 delay = 0.1
 retry_waits = [1, 2, 4, 8, 16, 32]
 
-taxonomy_file = open("seek_taxonomy.json")
-taxonomy = json.load(taxonomy_file)
-taxonomy_file.close()
+with open("seek_taxonomy.json") as taxonomy_file:
+    taxonomy = json.load(taxonomy_file)
 subclassifications = list(taxonomy[classification_id]["subclassifications"].keys())
 
 
@@ -50,36 +57,42 @@ fallbacks = [
 ]
 
 
-if len(sys.argv) > 1:
-    limit = int(sys.argv[1])
-else:
-    limit = 5
+limit = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 
 
 db = connect()
-
-
-
 
 
 def _parse_search(response, ctx):
     try:
         return response.json()
     except Exception:
-        log.error(ctx, "- status", response.status_code, "ct", response.headers.get("content-type"), "body:", response.text[:300])
+        log.error(
+            ctx,
+            "- status",
+            response.status_code,
+            "ct",
+            response.headers.get("content-type"),
+            "body:",
+            response.text[:300],
+        )
         raise
 
 
 async def count(session, sem, query):
     async with sem:
-        response = await session.get(search_endpoint + query + "&page=1", impersonate="chrome146")
+        response = await session.get(
+            search_endpoint + query + "&page=1", impersonate="chrome146"
+        )
         return _parse_search(response, "count " + query)["totalCount"]
 
 
 async def fetch_page(session, sem, query, page):
     async with sem:
         try:
-            response = await session.get(search_endpoint + query + "&page=" + str(page), impersonate="chrome146")
+            response = await session.get(
+                search_endpoint + query + "&page=" + str(page), impersonate="chrome146"
+            )
             return _parse_search(response, "page " + str(page) + " " + query)["data"]
         except Exception as e:
             log.error("page", page, query, "- dropped:", repr(e)[:120])
@@ -142,7 +155,6 @@ def parse_job_html(html, job_id):
     return meta, md
 
 
-
 async def fetch_and_save(session, sem, job, idx, total_n):
     url = "https://www.seek.com.au/job/" + str(job["id"])
     job_id = str(job["id"])
@@ -163,9 +175,17 @@ async def fetch_and_save(session, sem, job, idx, total_n):
                     meta, markdown = parsed
                     upsert_job_details(db, job_id, meta, markdown, new_hash)
                     if prev_hash is not None and prev_hash != new_hash:
-                        log_history(db, job_id, "html_changed", html_hash=new_hash, markdown=markdown)
+                        log_history(
+                            db,
+                            job_id,
+                            "html_changed",
+                            html_hash=new_hash,
+                            markdown=markdown,
+                        )
                 else:
-                    log.error(idx, "/", total_n, job_id, "- saved html but couldnt parse body")
+                    log.error(
+                        idx, "/", total_n, job_id, "- saved html but couldnt parse body"
+                    )
                 db.commit()
                 log.info(idx, "/", total_n, job_id, "-", job["title"])
                 return "added"
@@ -185,7 +205,7 @@ async def main():
 
         queries_base = ["subclassification=" + s for s in subclassifications]
         totals = await asyncio.gather(*[count(session, sem, q) for q in queries_base])
-        queries = list(zip(queries_base, totals))
+        queries = list(zip(queries_base, totals, strict=True))
         for q, t in queries:
             sub_id = q.split("=")[1]
             name = taxonomy[classification_id]["subclassifications"].get(sub_id, sub_id)
@@ -201,13 +221,21 @@ async def main():
                     log.info("splitting", q, "(" + str(total), "jobs) by", param)
                     for v in values:
                         over_queries.append(q + "&" + param + "=" + quote(v))
-            over_totals = await asyncio.gather(*[count(session, sem, q) for q in over_queries])
-            refined.extend(zip(over_queries, over_totals))
+            over_totals = await asyncio.gather(
+                *[count(session, sem, q) for q in over_queries]
+            )
+            refined.extend(zip(over_queries, over_totals, strict=True))
             queries = refined
 
         for q, total in queries:
             if total > max_results_per_query:
-                raise Exception("query '" + q + "' has " + str(total) + " jobs, exceeds cap. no more fallbacks to split by.")
+                raise Exception(
+                    "query '"
+                    + q
+                    + "' has "
+                    + str(total)
+                    + " jobs, exceeds cap. no more fallbacks to split by."
+                )
 
         search_tasks = []
         for q, total in queries:
@@ -226,7 +254,12 @@ async def main():
             for job in jobs:
                 all_jobs.append(job)
 
-        log.info("collected", len(all_jobs), "listings" + (" (" + str(dropped_pages) + " pages dropped)" if dropped_pages else ""))
+        log.info(
+            "collected",
+            len(all_jobs),
+            "listings"
+            + (" (" + str(dropped_pages) + " pages dropped)" if dropped_pages else ""),
+        )
 
         # track ids whose listing changed so phase 2 re-fetches even if raw_html exists
         refetch_ids = set()
@@ -244,12 +277,23 @@ async def main():
                 relisted_count += 1
                 refetch_ids.add(str(job["id"]))
         db.commit()
-        log.info("phase 1 -", new_count, "new,", changed_count, "changed,", relisted_count, "relisted")
+        log.info(
+            "phase 1 -",
+            new_count,
+            "new,",
+            changed_count,
+            "changed,",
+            relisted_count,
+            "relisted",
+        )
 
         # dedup ids that appear under multiple queries; skip ids with raw_html unless changed
-        have_html = {r[0] for r in db.execute(
-            "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
-        ).fetchall()}
+        have_html = {
+            r[0]
+            for r in db.execute(
+                "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
+            ).fetchall()
+        }
         to_fetch = []
         seen = set()
         for job in all_jobs:
@@ -261,14 +305,23 @@ async def main():
             seen.add(job_id)
             to_fetch.append(job)
 
-        already_have = len(have_html & {str(j["id"]) for j in all_jobs}) - len(refetch_ids & have_html)
+        already_have = len(have_html & {str(j["id"]) for j in all_jobs}) - len(
+            refetch_ids & have_html
+        )
         to_fetch = to_fetch[:limit]
-        log.info("downloading", len(to_fetch), "job pages (" + str(already_have), "already in db)")
+        log.info(
+            "downloading",
+            len(to_fetch),
+            "job pages (" + str(already_have),
+            "already in db)",
+        )
 
-        results = await asyncio.gather(*[
-            fetch_and_save(session, sem, job, i + 1, len(to_fetch))
-            for i, job in enumerate(to_fetch)
-        ])
+        results = await asyncio.gather(
+            *[
+                fetch_and_save(session, sem, job, i + 1, len(to_fetch))
+                for i, job in enumerate(to_fetch)
+            ]
+        )
 
         if partial_sweep:
             log.warn("partial sweep, skipping delisted sweep")
@@ -283,11 +336,24 @@ async def main():
     added = results.count("added")
     expired = results.count("expired")
     blocked = results.count("blocked")
-    log.info("added", added, "- expired", expired, "- blocked", blocked, "- skipped", already_have, "- delisted", delisted, "- purged", purged)
+    log.info(
+        "added",
+        added,
+        "- expired",
+        expired,
+        "- blocked",
+        blocked,
+        "- skipped",
+        already_have,
+        "- delisted",
+        delisted,
+        "- purged",
+        purged,
+    )
 
 
 start = time.time()
-run_started_at = datetime.now(timezone.utc)
+run_started_at = datetime.now(UTC)
 asyncio.run(main())
 elapsed = int(time.time() - start)
 log.info("completed in", elapsed // 60, "m", elapsed % 60, "s")

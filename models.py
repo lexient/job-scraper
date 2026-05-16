@@ -25,7 +25,9 @@ class Job(SQLModel, table=True):
     role_id: str | None = None
     display_type: str | None = None
     is_featured: bool | None = None
-    bullet_points: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String)))
+    bullet_points: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(String))
+    )
     tags: list[str] | None = Field(default=None, sa_column=Column(ARRAY(String)))
     raw_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB))
     raw_html: str | None = None

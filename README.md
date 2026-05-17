@@ -13,15 +13,32 @@ docker compose up -d
 
 Postgres on `localhost:${POSTGRES_HOST_PORT}` (default 5432), scraper loops every `SCRAPE_INTERVAL_SECONDS`.
 
+`docker compose logs -f scraper` to tail, `docker compose down` to stop.
+
 ## Run scraper locally against dockerised postgres
 
 ```
 cp .env.example .env
-./postgres.sh        # starts postgres container, runs schema init
-pip install -r requirements.txt
-python scrape.py 100 # arg is max jobs per run, defaults to 5
+just db              # start postgres container, run migrations
+uv sync              # install deps into .venv
+just scrape 9999      # arg is max jobs per run, defaults to 5
 ```
+
+## Common commands
+
+`just` shows everything available.
+
+- `just db-shell` open a psql shell against the local db
+- `just db-reset` nuke and recreate the db
+- `just migration "add salary column"` autogenerate an Alembic migration
+- `just migrate` apply pending migrations
+- `just lint` ruff fix and format
+- `just check` ruff check without writing
 
 ## Config
 
 See `.env.example`. Set `DATABASE_URL` to point at a remote DB. Set `CONCURRENCY` lower if you run into rate limits.
+
+## Requirements
+
+[uv](https://docs.astral.sh/uv/), [just](https://github.com/casey/just), Docker.

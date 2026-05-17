@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.13 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -13,10 +13,12 @@ ENV UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:$PATH"
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-install-project
 
-COPY scrape.py db.py log.py models.py seek_taxonomy.json alembic.ini ./
+COPY alembic.ini ./
 COPY migrations ./migrations
+COPY src ./src
+RUN uv sync --frozen
 
-CMD ["python", "-u", "scrape.py"]
+CMD ["python", "-u", "-m", "job_scraper.scrape"]

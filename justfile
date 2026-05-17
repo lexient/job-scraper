@@ -11,17 +11,19 @@ logs:
     docker compose logs -f scraper
 
 db:
-    ./postgres.sh
+    docker compose up -d --wait postgres
+    uv run alembic upgrade head
 
 db-reset:
     docker compose down -v
-    ./postgres.sh
+    docker compose up -d --wait postgres
+    uv run alembic upgrade head
 
 db-shell:
     docker exec -it job-scraper-postgres psql -U seek postgres
 
 scrape limit="5":
-    uv run python scrape.py {{limit}}
+    uv run python -m job_scraper.scrape {{limit}}
 
 migrate:
     uv run alembic upgrade head

@@ -37,7 +37,7 @@ services:
         alembic upgrade head
         while true; do
           date -u +"scrape start %Y-%m-%dT%H:%M:%SZ"
-          if python -u scrape.py "$$SCRAPE_LIMIT"; then
+          if python -u -m job_scraper.scrape "$$SCRAPE_LIMIT"; then
             date -u +"scrape done  %Y-%m-%dT%H:%M:%SZ"
           else
             date -u +"scrape failed %Y-%m-%dT%H:%M:%SZ"

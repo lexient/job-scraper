@@ -31,7 +31,7 @@ config.set_main_option("sqlalchemy.url", database_url)
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-import models  # noqa: F401  registers SQLModel tables before autogenerate runs
+from job_scraper import models  # noqa: F401  registers SQLModel tables before autogenerate runs
 
 target_metadata = SQLModel.metadata
 

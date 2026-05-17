@@ -1,21 +1,29 @@
 # job-scraper
 
-Scrapes Seek.com.au job listings into Postgres and tracks changes over time.
+Scrapes Seek.com.au job listings into Postgres and tracks changes over time. I host this on my homelab and have it running 24/7.
 
-By default, it only tracks ICT listings, you can change `classification_id` in `scrape.py` to any top-level ID from `seek_taxonomy.json`.
+The first scrape takes me under 20 minutes for 7000 jobs, with subsequent scrapes taking < 10s.
 
-## Run everything in docker
+Useful for trend questions like:
+
+- prevalence of AI in job ads over time
+- how long listings stay open on average
+- tech stacks gaining or losing popularity
+
+## Running
+
+### Everything in Docker
 
 ```
 cp .env.example .env
 docker compose up -d
 ```
 
-Postgres on `localhost:${POSTGRES_HOST_PORT}` (default 5432), scraper loops every `SCRAPE_INTERVAL_SECONDS`.
+The scraper loops on `SCRAPE_INTERVAL_SECONDS`.
 
 `docker compose logs -f scraper` to tail, `docker compose down` to stop.
 
-## Run scraper locally against dockerised postgres
+### Scraper locally
 
 ```
 cp .env.example .env
@@ -37,7 +45,12 @@ just scrape 9999      # arg is max jobs per run, defaults to 5
 
 ## Config
 
-See `.env.example`. Set `DATABASE_URL` to point at a remote DB. Set `CONCURRENCY` lower if you run into rate limits.
+See `.env.example`.
+
+## Rate limits
+
+- Set `CONCURRENCY` lower.
+- Use a residential IP address (I had mixed results hosting from a datacentre).
 
 ## Requirements
 

@@ -1,11 +1,8 @@
 # build context = project root. whitelist what the scraper image needs.
 *
-!scrape.py
-!db.py
-!log.py
-!models.py
-!seek_taxonomy.json
+!src
 !pyproject.toml
 !uv.lock
+!README.md
 !alembic.ini
 !migrations

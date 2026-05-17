@@ -2,18 +2,19 @@
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote
 
 import markdownify
 from bs4 import BeautifulSoup
 from curl_cffi import AsyncSession
 
-import log
-from db import (
+from job_scraper.db import (
     connect,
     log_history,
     mark_expired,
@@ -25,16 +26,19 @@ from db import (
 )
 
 search_endpoint = "https://www.seek.com.au/api/jobsearch/v5/search?"
-classification_id = "6281"  # Information & Communication Technology
+# default: Information & Communication Technology
+classification_id = os.environ.get("CLASSIFICATION_ID", "6281")
 
 # 20 results per page, 27 pages max per query
 max_results_per_query = 20 * 27
 
 concurrency = int(os.environ.get("CONCURRENCY", "8"))
-delay = 0.1
-retry_waits = [1, 2, 4, 8, 16, 32]
+delay = float(os.environ.get("REQUEST_DELAY", "0.1"))
+retry_waits = [
+    int(x) for x in os.environ.get("RETRY_WAITS", "1,2,4,8,16,32,64").split(",")
+]
 
-with open("seek_taxonomy.json") as taxonomy_file:
+with (Path(__file__).parent / "seek_taxonomy.json").open() as taxonomy_file:
     taxonomy = json.load(taxonomy_file)
 subclassifications = list(taxonomy[classification_id]["subclassifications"].keys())
 
@@ -57,24 +61,14 @@ fallbacks = [
 ]
 
 
-limit = int(sys.argv[1]) if len(sys.argv) > 1 else 5
-
-
-db = connect()
-
-
 def _parse_search(response, ctx):
     try:
         return response.json()
     except Exception:
-        log.error(
-            ctx,
-            "- status",
-            response.status_code,
-            "ct",
-            response.headers.get("content-type"),
-            "body:",
-            response.text[:300],
+        logging.error(
+            f"{ctx} - status {response.status_code} "
+            f"ct {response.headers.get('content-type')} "
+            f"body: {response.text[:300]}"
         )
         raise
 
@@ -95,16 +89,16 @@ async def fetch_page(session, sem, query, page):
             )
             return _parse_search(response, "page " + str(page) + " " + query)["data"]
         except Exception as e:
-            log.error("page", page, query, "- dropped:", repr(e)[:120])
+            logging.error(f"page {page} {query} - dropped: {repr(e)[:120]}")
             return None
 
 
-# shadow-blocked: 200 with empty react shell
+# shadow-banned: 200 with empty react shell
 def is_blocked(html):
     return "jobAdDetails" not in html and "jobDescription" not in html
 
 
-# expired ads 200 with an expiredJobPage container; without this we'd retry forever
+# expired ads 200 with an expiredJobPage container (without this we'd retry forever)
 def is_expired(html):
     return 'data-automation="expiredJobPage"' in html
 
@@ -138,7 +132,7 @@ def _extract_classifications(soup):
     return [a.get_text(strip=True) for a in el.find_all("a")]
 
 
-# None means body marker is missing - layout change
+# None means body marker is missing - probably layout change
 def parse_job_html(html, job_id):
     soup = BeautifulSoup(html, "lxml")
     body = None
@@ -165,7 +159,7 @@ async def fetch_and_save(session, sem, job, idx, total_n):
             if is_expired(response.text):
                 mark_expired(db, job_id, response.text)
                 db.commit()
-                log.info(idx, "/", total_n, job_id, "- expired")
+                logging.info(f"{idx} / {total_n} {job_id} - expired")
                 return "expired"
             if not is_blocked(response.text):
                 html = response.text
@@ -183,18 +177,20 @@ async def fetch_and_save(session, sem, job, idx, total_n):
                             markdown=markdown,
                         )
                 else:
-                    log.error(
-                        idx, "/", total_n, job_id, "- saved html but couldnt parse body"
+                    logging.error(
+                        f"{idx} / {total_n} {job_id} - saved html but couldnt parse body"
                     )
                 db.commit()
-                log.info(idx, "/", total_n, job_id, "-", job["title"])
+                logging.info(f"{idx} / {total_n} {job_id} - {job['title']}")
                 return "added"
             # semaphore slot is held through the waits
             if attempt < len(retry_waits):
                 wait = retry_waits[attempt]
-                log.warn(idx, "/", total_n, job_id, "- blocked, retry in", wait, "s")
+                logging.warning(
+                    f"{idx} / {total_n} {job_id} - blocked, retry in {wait} s"
+                )
                 await asyncio.sleep(wait)
-        log.error(idx, "/", total_n, job_id, "- blocked after retries")
+        logging.error(f"{idx} / {total_n} {job_id} - retries exhausted - giving up")
         return "blocked"
 
 
@@ -209,7 +205,7 @@ async def main():
         for q, t in queries:
             sub_id = q.split("=")[1]
             name = taxonomy[classification_id]["subclassifications"].get(sub_id, sub_id)
-            log.info(name, "-", t, "jobs")
+            logging.info(f"{name} - {t} jobs")
 
         for param, values in fallbacks:
             refined = []
@@ -218,7 +214,7 @@ async def main():
                 if total <= max_results_per_query:
                     refined.append((q, total))
                 else:
-                    log.info("splitting", q, "(" + str(total), "jobs) by", param)
+                    logging.info(f"splitting {q} ({total} jobs) by {param}")
                     for v in values:
                         over_queries.append(q + "&" + param + "=" + quote(v))
             over_totals = await asyncio.gather(
@@ -242,7 +238,7 @@ async def main():
             pages_needed = min(27, (total + 19) // 20)
             for page in range(1, pages_needed + 1):
                 search_tasks.append(fetch_page(session, sem, q, page))
-        log.info("fetching", len(search_tasks), "search pages")
+        logging.info(f"fetching {len(search_tasks)} search pages")
         all_pages = await asyncio.gather(*search_tasks)
         dropped_pages = sum(1 for p in all_pages if p is None)
         partial_sweep = dropped_pages > 0
@@ -254,12 +250,8 @@ async def main():
             for job in jobs:
                 all_jobs.append(job)
 
-        log.info(
-            "collected",
-            len(all_jobs),
-            "listings"
-            + (" (" + str(dropped_pages) + " pages dropped)" if dropped_pages else ""),
-        )
+        suffix = f" ({dropped_pages} pages dropped)" if dropped_pages else ""
+        logging.info(f"collected {len(all_jobs)} listings{suffix}")
 
         # track ids whose listing changed so phase 2 re-fetches even if raw_html exists
         refetch_ids = set()
@@ -277,14 +269,8 @@ async def main():
                 relisted_count += 1
                 refetch_ids.add(str(job["id"]))
         db.commit()
-        log.info(
-            "phase 1 -",
-            new_count,
-            "new,",
-            changed_count,
-            "changed,",
-            relisted_count,
-            "relisted",
+        logging.info(
+            f"phase 1 - {new_count} new, {changed_count} changed, {relisted_count} relisted"
         )
 
         # dedup ids that appear under multiple queries; skip ids with raw_html unless changed
@@ -309,11 +295,8 @@ async def main():
             refetch_ids & have_html
         )
         to_fetch = to_fetch[:limit]
-        log.info(
-            "downloading",
-            len(to_fetch),
-            "job pages (" + str(already_have),
-            "already in db)",
+        logging.info(
+            f"downloading {len(to_fetch)} job pages ({already_have} already in db)"
         )
 
         results = await asyncio.gather(
@@ -324,7 +307,7 @@ async def main():
         )
 
         if partial_sweep:
-            log.warn("partial sweep, skipping delisted sweep")
+            logging.warning("partial sweep, skipping delisted sweep")
             delisted = 0
         else:
             delisted = sweep_delisted(db, run_started_at)
@@ -336,24 +319,23 @@ async def main():
     added = results.count("added")
     expired = results.count("expired")
     blocked = results.count("blocked")
-    log.info(
-        "added",
-        added,
-        "- expired",
-        expired,
-        "- blocked",
-        blocked,
-        "- skipped",
-        already_have,
-        "- delisted",
-        delisted,
-        "- purged",
-        purged,
+    logging.info(
+        f"added {added} - expired {expired} - blocked {blocked} "
+        f"- skipped {already_have} - delisted {delisted} - purged {purged}"
     )
 
 
-start = time.time()
-run_started_at = datetime.now(UTC)
-asyncio.run(main())
-elapsed = int(time.time() - start)
-log.info("completed in", elapsed // 60, "m", elapsed % 60, "s")
+if __name__ == "__main__":
+    logging.addLevelName(logging.WARNING, "WARN")
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-5s %(message)s",
+        datefmt="%H:%M:%S",
+        level=logging.INFO,
+    )
+    limit = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+    db = connect()
+    start = time.time()
+    run_started_at = datetime.now(UTC)
+    asyncio.run(main())
+    elapsed = int(time.time() - start)
+    logging.info(f"completed in {elapsed // 60} m {elapsed % 60} s")

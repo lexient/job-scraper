@@ -112,6 +112,7 @@ def upsert_job(conn, job):
                 THEN NOW() ELSE jobs.content_changed_at
             END,
             last_seen_at = NOW(),
+            misses = 0,
             delisted_at = NULL
     """,
         (
@@ -222,17 +223,26 @@ def mark_expired(conn, job_id, html):
     return was_expired
 
 
-def sweep_delisted(conn, run_started_at):
-    rows = conn.execute(
+def sweep_delisted(conn, run_started_at, miss_threshold):
+    conn.execute(
         """
-        UPDATE jobs SET delisted_at = NOW()
+        UPDATE jobs SET misses = misses + 1
         WHERE last_seen_at IS NOT NULL
           AND last_seen_at < %s
           AND delisted_at IS NULL
           AND expired_at IS NULL
-        RETURNING id
     """,
         (run_started_at,),
+    )
+    rows = conn.execute(
+        """
+        UPDATE jobs SET delisted_at = NOW()
+        WHERE misses >= %s
+          AND delisted_at IS NULL
+          AND expired_at IS NULL
+        RETURNING id
+    """,
+        (miss_threshold,),
     ).fetchall()
     for (job_id,) in rows:
         log_history(conn, job_id, "delisted")

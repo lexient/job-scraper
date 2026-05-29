@@ -32,6 +32,8 @@ classification_id = os.environ.get("CLASSIFICATION_ID", "6281")
 # 20 results per page, 27 pages max per query
 max_results_per_query = 20 * 27
 
+DELIST_MISSES = 2
+
 concurrency = int(os.environ.get("CONCURRENCY", "8"))
 delay = float(os.environ.get("REQUEST_DELAY", "0.1"))
 retry_waits = [
@@ -306,11 +308,11 @@ async def main():
             ]
         )
 
-        if partial_sweep:
-            logging.warning("partial sweep, skipping delisted sweep")
+        if partial_sweep or not all_jobs:
+            logging.warning("partial or empty sweep, skipping delist sweep")
             delisted = 0
         else:
-            delisted = sweep_delisted(db, run_started_at)
+            delisted = sweep_delisted(db, run_started_at, DELIST_MISSES)
         purged = purge_stranded(db)
         db.commit()
 

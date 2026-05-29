@@ -42,6 +42,7 @@ class Job(SQLModel, table=True):
     last_seen_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True))
     )
+    misses: int = Field(default=0, sa_column_kwargs={"server_default": "0"})
     delisted_at: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True))
     )

@@ -22,8 +22,8 @@ db-reset:
 db-shell:
     docker exec -it job-scraper-postgres psql -U seek postgres
 
-scrape limit="5":
-    uv run python -m job_scraper.scrape {{limit}}
+scrape limit="99999":
+    uv run python -m job_scraper.seek {{limit}}
 
 migrate:
     uv run alembic upgrade head

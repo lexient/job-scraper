@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -24,6 +25,8 @@ from job_scraper.db import (
     upsert_job_details,
     upsert_job_html,
 )
+
+SOURCE = "seek"
 
 search_endpoint = "https://www.seek.com.au/api/jobsearch/v5/search?"
 # default: Information & Communication Technology
@@ -61,6 +64,53 @@ regions = [
 fallbacks = [
     ("where", regions),
 ]
+
+
+# excludes tags/bulletPoints which flap
+_content_keys = [
+    "title",
+    "teaser",
+    "companyName",
+    "salaryLabel",
+    "workArrangements",
+    "workTypes",
+    "classifications",
+    "locations",
+    "listingDate",
+]
+
+
+def content_hash(job):
+    serial = json.dumps(
+        {k: job.get(k) for k in _content_keys}, sort_keys=True, default=str
+    )
+    return hashlib.sha256(serial.encode()).hexdigest()
+
+
+def listing_fields(job):
+    classif = (job.get("classifications") or [{}])[0]
+    tags = [t.get("type") for t in (job.get("tags") or []) if t.get("type")]
+    return {
+        "title": job.get("title"),
+        "teaser": job.get("teaser"),
+        "company": job.get("companyName"),
+        "advertiser_id": (job.get("advertiser") or {}).get("id"),
+        "classification": (classif.get("classification") or {}).get("description"),
+        "subclassification": (classif.get("subclassification") or {}).get(
+            "description"
+        ),
+        "location": (job.get("locations") or [{}])[0].get("label"),
+        "work_type": (job.get("workTypes") or [None])[0],
+        "work_arrangement": (job.get("workArrangements") or {}).get("displayText"),
+        "salary_label": job.get("salaryLabel"),
+        "listing_date": job.get("listingDate"),
+        "url": "https://www.seek.com.au/job/" + str(job["id"]),
+        "role_id": job.get("roleId"),
+        "display_type": job.get("displayType"),
+        "is_featured": bool(job.get("isFeatured")),
+        "bullet_points": job.get("bulletPoints") or None,
+        "tags": tags or None,
+    }
 
 
 def _parse_search(response, ctx):
@@ -159,20 +209,21 @@ async def fetch_and_save(session, sem, job, idx, total_n):
         for attempt in range(len(retry_waits) + 1):
             response = await session.get(url, impersonate="chrome100")
             if is_expired(response.text):
-                mark_expired(db, job_id, response.text)
+                mark_expired(db, SOURCE, job_id, response.text)
                 db.commit()
                 logging.info(f"{idx} / {total_n} {job_id} - expired")
                 return "expired"
             if not is_blocked(response.text):
                 html = response.text
-                prev_hash, new_hash = upsert_job_html(db, job_id, html)
+                prev_hash, new_hash = upsert_job_html(db, SOURCE, job_id, html)
                 parsed = parse_job_html(html, job_id)
                 if parsed is not None:
                     meta, markdown = parsed
-                    upsert_job_details(db, job_id, meta, markdown, new_hash)
+                    upsert_job_details(db, SOURCE, job_id, meta, markdown, new_hash)
                     if prev_hash is not None and prev_hash != new_hash:
                         log_history(
                             db,
+                            SOURCE,
                             job_id,
                             "html_changed",
                             html_hash=new_hash,
@@ -261,7 +312,9 @@ async def main():
         changed_count = 0
         relisted_count = 0
         for job in all_jobs:
-            event = upsert_job(db, job)
+            event = upsert_job(
+                db, SOURCE, str(job["id"]), listing_fields(job), job, content_hash(job)
+            )
             if event == "first_seen":
                 new_count += 1
             elif event == "changed":
@@ -279,7 +332,8 @@ async def main():
         have_html = {
             r[0]
             for r in db.execute(
-                "SELECT id FROM jobs WHERE raw_html IS NOT NULL"
+                "SELECT id FROM jobs WHERE source = %s AND raw_html IS NOT NULL",
+                (SOURCE,),
             ).fetchall()
         }
         to_fetch = []
@@ -312,8 +366,8 @@ async def main():
             logging.warning("partial or empty sweep, skipping delist sweep")
             delisted = 0
         else:
-            delisted = sweep_delisted(db, run_started_at, DELIST_MISSES)
-        purged = purge_stranded(db)
+            delisted = sweep_delisted(db, SOURCE, run_started_at, DELIST_MISSES)
+        purged = purge_stranded(db, SOURCE)
         db.commit()
 
     db.close()

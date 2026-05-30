@@ -10,6 +10,7 @@ class Job(SQLModel, table=True):
     __tablename__ = "jobs"
 
     id: str = Field(primary_key=True)
+    source: str = Field(primary_key=True, index=True)
     title: str | None = None
     teaser: str | None = None
     company: str | None = None
@@ -59,6 +60,7 @@ class JobDetail(SQLModel, table=True):
     __tablename__ = "job_details"
 
     id: str = Field(primary_key=True)
+    source: str = Field(primary_key=True, index=True)
     title: str | None = None
     company: str | None = None
     location: str | None = None
@@ -88,6 +90,7 @@ class JobHistory(SQLModel, table=True):
         default=None,
         sa_column=Column(BigInteger, primary_key=True, autoincrement=True),
     )
+    source: str = Field(index=True)
     job_id: str
     observed_at: datetime | None = Field(
         default=None,

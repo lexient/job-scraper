@@ -25,6 +25,9 @@ db-shell:
 scrape limit="99999":
     uv run python -m job_scraper.seek {{limit}}
 
+scrape-indeed limit="99999":
+    uv run python -m job_scraper.indeed {{limit}}
+
 migrate:
     uv run alembic upgrade head
 

@@ -8,6 +8,7 @@ dependencies = [
     "curl-cffi>=0.7",
     "lxml>=4.9",
     "markdownify>=0.11",
+    "nodriver>=0.50.3",
     "psycopg[binary]>=3.2",
     "python-dotenv>=1.0",
     "sqlmodel>=0.0.22",

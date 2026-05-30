@@ -30,18 +30,20 @@ services:
       SCRAPE_LIMIT: ${SCRAPE_LIMIT:-99999}
       SCRAPE_INTERVAL_SECONDS: ${SCRAPE_INTERVAL_SECONDS:-1800}
       CONCURRENCY: ${CONCURRENCY:-8}
+      SCRAPE_SOURCE: ${SCRAPE_SOURCE:-seek}
     command:
       - sh
       - -c
       - |
         alembic upgrade head
         while true; do
-          date -u +"scrape start %Y-%m-%dT%H:%M:%SZ"
-          if python -u -m job_scraper.scrape "$$SCRAPE_LIMIT"; then
-            date -u +"scrape done  %Y-%m-%dT%H:%M:%SZ"
-          else
-            date -u +"scrape failed %Y-%m-%dT%H:%M:%SZ"
-          fi
+          for s in seek indeed; do
+            [ "$$SCRAPE_SOURCE" = all ] || [ "$$SCRAPE_SOURCE" = "$$s" ] || continue
+            date -u +"scrape $$s start %Y-%m-%dT%H:%M:%SZ"
+            xvfb-run -a python -u -m "job_scraper.$$s" "$$SCRAPE_LIMIT" \
+              && date -u +"scrape $$s done %Y-%m-%dT%H:%M:%SZ" \
+              || date -u +"scrape $$s failed %Y-%m-%dT%H:%M:%SZ"
+          done
           sleep "$$SCRAPE_INTERVAL_SECONDS"
         done
     restart: unless-stopped

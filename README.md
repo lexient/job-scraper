@@ -1,8 +1,8 @@
 # job-scraper
 
-Scrapes Seek.com.au job listings into Postgres and tracks changes over time. I host this on my homelab and have it running 24/7.
+Scrapes Seek.com.au and Indeed.com.au job listings into Postgres and tracks changes over time. I host this on my homelab and have it running 24/7.
 
-The first scrape takes me under 20 minutes for 7000 jobs, with subsequent scrapes taking < 10s.
+The first Seek scrape takes me under 20 minutes for 7000 jobs, with subsequent scrapes taking < 10s.
 
 Useful for trend questions like:
 
@@ -27,10 +27,18 @@ The scraper loops on `SCRAPE_INTERVAL_SECONDS`.
 
 ```
 cp .env.example .env
-just db              # start postgres container, run migrations
-uv sync              # install deps into .venv
-just scrape 9999      # arg is max jobs per run, defaults to 5
+just db          # start postgres container, run migrations
+uv sync          # install deps into .venv
+just scrape 5    # scrapes 5 Seek jobs
+just scrape      # scrapes all Seek jobs
+just scrape-indeed   # scrapes Indeed
 ```
+
+`docker compose up` scrapes Seek by default. Set by `SCRAPE_SOURCE` in the .env
+
+Indeed sits behind Cloudflare, so it drives a real browser (Chromium via nodriver)
+instead of the JSON API. The image bundles Chromium and runs it under xvfb. Locally
+`just scrape-indeed` needs Chrome or Chromium installed.
 
 ## Common commands
 
